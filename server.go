@@ -3,11 +3,17 @@ package revealgo
 import (
 	"embed"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 	socketio "github.com/googollee/go-socket.io"
 	"github.com/googollee/go-socket.io/engineio"
 	"github.com/googollee/go-socket.io/engineio/transport"
@@ -139,6 +145,81 @@ func contentHandler(params ServerParam, h http.Handler) http.Handler {
 			w.Header().Set("Content-Type", mimeType)
 		}
 
+		if r.URL.Query().Get("run") == "true" {
+			// Write file
+			// Call URL
+			// Save PDF
+			// Return PDF
+
+			file, err := ioutil.TempFile("tmp", "prefix")
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			defer r.Body.Close()
+
+			b, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				panic(err)
+			}
+
+			_, err = file.WriteString(strings.ReplaceAll(string(b), "\\n", "\n"))
+
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			params.Path = file.Name()
+			file.Close()
+
+			p := params.Path
+
+			rr, err := rod.New().MustConnect().MustPage("http://localhost:3000?path=" + params.Path).MustWaitLoad().PDF(&proto.PagePrintToPDF{Landscape: true})
+
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			bin, err := ioutil.ReadAll(rr)
+
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			ioutil.WriteFile(p+".pdf", bin, 0664)
+
+			f, err := os.Open(p + ".pdf")
+			if err != nil {
+				fmt.Println(err)
+				w.WriteHeader(500)
+				return
+			}
+			defer f.Close()
+
+			//Set header
+			w.Header().Set("Content-type", "application/pdf")
+
+			//Stream to response
+			if _, err := io.Copy(w, f); err != nil {
+				fmt.Println(err)
+				w.WriteHeader(500)
+			}
+
+			err = os.Remove(p)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			err = os.Remove(p + ".pdf")
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			return
+		}
+
+		params.Path = r.URL.Query().Get("path")
+
 		if r.URL.Path != "/" {
 			h.ServeHTTP(w, r)
 			return
@@ -154,6 +235,7 @@ func contentHandler(params ServerParam, h http.Handler) http.Handler {
 		if err := tmpl.Execute(w, params); err != nil {
 			log.Fatalf("error:%v", err)
 		}
+
 	})
 }
 
