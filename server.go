@@ -13,6 +13,7 @@ import (
 	"text/template"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	socketio "github.com/googollee/go-socket.io"
 	"github.com/googollee/go-socket.io/engineio"
@@ -174,7 +175,14 @@ func contentHandler(params ServerParam, h http.Handler) http.Handler {
 
 			p := params.Path
 
-			rr, err := rod.New().MustConnect().MustPage("http://localhost:3000?path=" + params.Path).MustWaitLoad().PDF(&proto.PagePrintToPDF{Landscape: true})
+			l := launcher.New().
+				Headless(true).
+				Set("no-sandbox").
+				MustLaunch()
+
+			browser := rod.New().ControlURL(l).NoDefaultDevice().MustConnect()
+			
+			rr, err := browser.MustPage("http://127.0.0.1:3000?path=" + params.Path).MustWaitLoad().PDF(&proto.PagePrintToPDF{Landscape: true})
 
 			if err != nil {
 				fmt.Println(err)
