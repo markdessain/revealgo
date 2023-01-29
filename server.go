@@ -175,13 +175,15 @@ func contentHandler(params ServerParam, h http.Handler) http.Handler {
 
 			p := params.Path
 
+			path, _ := launcher.LookPath()
 			l := launcher.New().
+				Bin(path).
 				Headless(true).
 				Set("no-sandbox").
 				MustLaunch()
 
 			browser := rod.New().ControlURL(l).NoDefaultDevice().MustConnect()
-			
+
 			rr, err := browser.MustPage("http://127.0.0.1:3000?path=" + params.Path).MustWaitLoad().PDF(&proto.PagePrintToPDF{Landscape: true})
 
 			if err != nil {
