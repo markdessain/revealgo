@@ -1,20 +1,15 @@
 package revealgo
 
 import (
+	"os"
+	"strings"
 	"embed"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
-	"strings"
 	"text/template"
 
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
-	"github.com/go-rod/rod/lib/proto"
 	socketio "github.com/googollee/go-socket.io"
 	"github.com/googollee/go-socket.io/engineio"
 	"github.com/googollee/go-socket.io/engineio/transport"
@@ -35,12 +30,16 @@ var multiplex embed.FS
 //go:embed assets/templates/slide.html
 var slideTemplate string
 
+//go:embed assets/themes
+var themes embed.FS
+
 type Server struct {
 	port int
 }
 
 type ServerParam struct {
 	Path              string
+	MarkDown          string
 	Theme             string
 	OriginalTheme     bool
 	DisableAutoOpen   bool
@@ -70,6 +69,7 @@ func (server *Server) Serve(param ServerParam) {
 	fmt.Printf("accepting connections at http://*:%d/\n", port)
 	http.Handle("/", contentHandler(param, http.FileServer(http.Dir("."))))
 	http.Handle("/revealjs/", assetsHandler("/assets/", http.FileServer(http.FS(revealjs))))
+	http.Handle("/themes/", assetsHandler("/assets/", http.FileServer(http.FS(themes))))
 
 	if param.Multiplex.Secret != "" {
 		socketioServer := setupSocketIO()
@@ -146,90 +146,20 @@ func contentHandler(params ServerParam, h http.Handler) http.Handler {
 			w.Header().Set("Content-Type", mimeType)
 		}
 
-		if r.URL.Query().Get("run") == "true" {
-			// Write file
-			// Call URL
-			// Save PDF
-			// Return PDF
+		if r.URL.Query().Get("path") != "" {
+			params.Path = r.URL.Query().Get("path")
 
-			file, err := ioutil.TempFile("tmp", "prefix")
+			dat, err := os.ReadFile(params.Path)
 			if err != nil {
 				fmt.Println(err)
 			}
-
-			defer r.Body.Close()
-
-			b, err := ioutil.ReadAll(r.Body)
-			if err != nil {
-				panic(err)
-			}
-
-			_, err = file.WriteString(strings.ReplaceAll(string(b), "\\n", "\n"))
-
-			if err != nil {
-				fmt.Println(err)
-			}
-
-			params.Path = file.Name()
-			file.Close()
-
-			p := params.Path
-
-			path, _ := launcher.LookPath()
-			l := launcher.New().
-				Bin(path).
-				Headless(true).
-				Set("no-sandbox").
-				MustLaunch()
-
-			browser := rod.New().ControlURL(l).NoDefaultDevice().MustConnect()
-
-			rr, err := browser.MustPage("http://127.0.0.1:3000?path=" + params.Path).MustWaitLoad().PDF(&proto.PagePrintToPDF{Landscape: true})
-
-			if err != nil {
-				fmt.Println(err)
-			}
-
-			bin, err := ioutil.ReadAll(rr)
-
-			if err != nil {
-				fmt.Println(err)
-			}
-
-			ioutil.WriteFile(p+".pdf", bin, 0664)
-
-			f, err := os.Open(p + ".pdf")
-			if err != nil {
-				fmt.Println(err)
-				w.WriteHeader(500)
-				return
-			}
-			defer f.Close()
-
-			//Set header
-			w.Header().Set("Content-type", "application/pdf")
-
-			//Stream to response
-			if _, err := io.Copy(w, f); err != nil {
-				fmt.Println(err)
-				w.WriteHeader(500)
-			}
-
-			err = os.Remove(p)
-			if err != nil {
-				fmt.Println(err)
-			}
-
-			err = os.Remove(p + ".pdf")
-			if err != nil {
-				fmt.Println(err)
-			}
-
-			return
+			params.MarkDown = string(dat)
+		} else if r.URL.Query().Get("markdown") != "" {
+			params.MarkDown = strings.ReplaceAll(r.URL.Query().Get("markdown"), "\\n", "\n\n")
+		} else {
+			params.MarkDown = ""
 		}
-
-		params.Path = r.URL.Query().Get("path")
-
+		
 		if r.URL.Path != "/" {
 			h.ServeHTTP(w, r)
 			return
